@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 )
 
 const (
@@ -17,11 +18,16 @@ const (
 	integers byte = ':'
 )
 
-
-var Commands  = map[string]struct{}{
-	"ECHO":{},
-	"PING":{},
+type KVStore struct {
+	*sync.RWMutex
+	store map[string][]byte
 }
+
+var kvstore = KVStore{
+	RWMutex: &sync.RWMutex{},
+	store: make(map[string][]byte),
+}
+
 
 func main() {
 	ln,err := net.Listen("tcp",":6379")
@@ -46,42 +52,98 @@ func handleConnection(conn net.Conn){
 	defer conn.Close()
 
 	for {
-
 		buffer := make([]byte,1024)
 		lengthOfData, err := conn.Read(buffer)
 		if err == io.EOF{
 			return
 		}
 		reader := bytes.NewReader(buffer[:lengthOfData])
-		result, err := parseRESP(reader)
-		if err != nil{
-			fmt.Print("Error, unable to parse string")
-			return
+
+		message, err := selectReply(reader)
+		if err!=nil{
+			fmt.Printf("Error from parsing Message")
+			return 
 		}
-
-		var message []byte
-		if array, ok := result.([]interface{}); ok{
-			command, ok := array[0].([]byte)
-			if !ok{
-				fmt.Printf("Error command is not a bytestring")
-			}
-
-			if strings.ToUpper(string(command)) == "ECHO"{
-				message = array[1].([]byte)
-				message = []byte("+" + string(message) + "\r\n")
-
-			} else if strings.ToUpper(string(command)) == "PING"{
-				message = []byte("+PONG\r\n")
-			}
-
-		} else if _, ok := result.([]byte); ok{
-
-			message = []byte("+OK\r\n")
-		}
-
 		_, err = conn.Write(message)
 		if err!=nil{
 			fmt.Printf("Error: %v",err)
 		}
 	}
+}
+
+
+func selectReply(reader *bytes.Reader) ([]byte,error){
+	clientMessage, err := parseRESP(reader)
+	if err!=nil{
+		return nil, err
+	}
+
+	var message []byte
+
+	// For commands
+	if messageArray , ok := clientMessage.([]interface{}); ok{
+		fmt.Printf("Recieved Message: %s",messageArray)
+		// get command
+
+		command, ok := messageArray[0].([]byte)
+
+		if !ok{
+			return nil, fmt.Errorf("expected []byte for command")
+		}
+
+		switch strings.ToUpper(string(command)){
+		case "ECHO":
+
+			messageContent, ok := messageArray[1].([]byte)
+			if !ok {
+				return nil, fmt.Errorf("expected []byte for message content")
+			}
+			message = []byte("+" + string(messageContent) + "\r\n")
+
+		case "PING":
+			message = []byte("+PONG\r\n")
+
+		case "SET":
+
+			key, ok := messageArray[1].([]byte)
+			if !ok {
+				return nil, fmt.Errorf("expected []byte for key")
+			}
+			value, ok := messageArray[2].([]byte)
+			if !ok {
+				return nil, fmt.Errorf("expected []byte for value")
+			}
+
+			kvstore.Lock()
+			kvstore.store[string(key)] = value
+			kvstore.Unlock()
+
+			message = []byte("+OK\r\n")
+
+		case "GET":
+
+			key , ok := messageArray[1].([]byte)
+			if !ok{
+				return nil, fmt.Errorf("expected []byte for key")
+			}
+
+			kvstore.RLock()
+			value := kvstore.store[string(key)]
+			kvstore.RUnlock()
+			valueLength := len(string(value))
+			message = []byte(fmt.Sprintf("$%v\r\n%s\r\n",valueLength,string(value)))
+
+
+		default:
+			return nil, fmt.Errorf("error:%v",err)
+		}
+
+	  //For strings, ints etc
+	}  else if messageBytes, ok := clientMessage.([]byte);  ok {
+		fmt.Printf("Recieved Message: %v",string(messageBytes))
+		message = []byte("+OK\r\n")
+
+	}
+
+	return message, nil
 }
