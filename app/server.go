@@ -45,7 +45,18 @@ func main() {
 		os.Exit(1)
 	}
 	defer ln.Close()
+	
+	ticker := time.NewTicker(5*time.Minute)
+	defer ticker.Stop()
 
+	//Cleaner Loop
+	go func(){
+		for range ticker.C{
+			removeExpired()
+		}
+	}()
+
+	//Handler Loop
 	for {
 		conn, err := ln.Accept()
 		if err != nil{
@@ -132,4 +143,15 @@ func selectReply(reader *bytes.Reader) ([]byte,error){
 	}
 
 	return message, nil
+}
+
+
+func removeExpired(){
+	kvstore.RLock()
+	defer kvstore.RUnlock()
+	for key, entry := range kvstore.store{
+		if entry.expiryTime.Before(time.Now()){
+			delete(kvstore.store, key)
+		}
+	}
 }
