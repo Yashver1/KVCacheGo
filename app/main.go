@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	//"errors"
+	//"flag"
 	"fmt"
 	"io"
 	"net"
@@ -9,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	//"path/filepath"
 )
 
 
@@ -32,31 +35,59 @@ type Entry struct {
 	
 }
 
-
-var kvstore = KVStore{
-	RWMutex: &sync.RWMutex{},
-	store: make(map[string]*Entry),
+type Config struct {
+	dir string
+	dbFileName string
 }
 
+var config Config
+
+// func init(){
+// 	var dir string
+// 	var dbFileName string
+// 	flag.StringVar(&dir,"dir","","The path to the RDB file store")
+// 	flag.StringVar(&dbFileName,"dbfilename","","The name of the RDB" )
+// 	flag.Parse()
+
+// 	if _, err := os.Stat(filepath.Join(dir,dbFileName)); errors.Is(err, os.ErrNotExist){
+// 		dir = ""
+// 	}
+
+// 	config = Config{
+// 		dir: dir,
+// 		dbFileName: dbFileName,
+// 	}
+// }
+
 func main() {
+
+
+	fmt.Printf("server config: %v",config)
+	kvstore := KVStore{
+		RWMutex: &sync.RWMutex{},
+		store: make(map[string]*Entry),
+	}
+
 	ln,err := net.Listen("tcp",":6379")
 	if err!=nil{
 		fmt.Printf("Error: %v",err)
 		os.Exit(1)
 	}
 	defer ln.Close()
-	
-	ticker := time.NewTicker(5*time.Minute)
+
+	ticker := time.NewTicker(time.Minute*5)
 	defer ticker.Stop()
 
-	//Cleaner Loop
+	//expiry clear loop
 	go func(){
 		for range ticker.C{
-			removeExpired()
+			kvstore.removeExpired()
 		}
 	}()
 
-	//Handler Loop
+
+
+	//Main server handle loop
 	for {
 		conn, err := ln.Accept()
 		if err != nil{
@@ -64,11 +95,11 @@ func main() {
 			os.Exit(1)
 
 		}
-		go handleConnection(conn)
+		go handleConnection(conn,&kvstore)
 	}
 }
 
-func handleConnection(conn net.Conn){
+func handleConnection(conn net.Conn, kvstore *KVStore){
 	defer conn.Close()
 
 	for {
@@ -79,7 +110,7 @@ func handleConnection(conn net.Conn){
 		}
 		reader := bytes.NewReader(buffer[:lengthOfData])
 
-		message, err := selectReply(reader)
+		message, err := selectReply(reader, kvstore)
 		if err!=nil{
 			fmt.Printf("Error from parsing Message: %v",err)
 			return 
@@ -92,7 +123,7 @@ func handleConnection(conn net.Conn){
 }
 
 
-func selectReply(reader *bytes.Reader) ([]byte,error){
+func selectReply(reader *bytes.Reader, kvstore *KVStore) ([]byte,error){
 
 	clientMessage, err := parseRESP(reader)
 	if err!=nil{
@@ -120,17 +151,22 @@ func selectReply(reader *bytes.Reader) ([]byte,error){
 		command := messageArray[0]
 		switch strings.ToUpper(string(command)){
 
+		case "CONFIG":
+			if string(messageArray[1]) == "GET"{
+				message = handleCONFIGGET(messageArray)
+			}
+
 		case "ECHO":
 			message = handleECHO(messageArray)
 		case "PING":
 			message = handlePING()
 		case "SET":
-			message, err = handleSET(messageArray) 
+			message, err = kvstore.handleSET(messageArray) 
 			if err!=nil{
 				return nil,err
 			}
 		case "GET":
-			message = handleGET(messageArray)
+			message = kvstore.handleGET(messageArray)
 		default:
 			return nil, fmt.Errorf("error:%v",err)
 		}
@@ -145,12 +181,11 @@ func selectReply(reader *bytes.Reader) ([]byte,error){
 	return message, nil
 }
 
-
-func removeExpired(){
-	kvstore.RLock()
-	defer kvstore.RUnlock()
-	for key, entry := range kvstore.store{
-		if entry.expiryTime.Before(time.Now()){
+func (kvstore *KVStore) removeExpired(){
+	kvstore.Lock()
+	defer kvstore.Unlock()
+	for key, entry := range kvstore.store {
+		if (entry.expiryTime.Before(time.Now())){
 			delete(kvstore.store, key)
 		}
 	}

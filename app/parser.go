@@ -7,6 +7,8 @@ import (
 	"strconv"
 )
 
+
+
 func readTilEndOfType(reader *bytes.Reader, delimiter byte) ([]byte, error){
 	var data []byte
 	for {
@@ -54,11 +56,13 @@ func parseRESP(reader *bytes.Reader) (interface{}, error)  {
 		return nil, err
 	}
 	switch data{
+
+
 	case simpleStrings:
 		return parseSimpleStrings(reader)
 
 	case bulkStrings:
-		length, err := reader.ReadByte()
+		length, err := readTilEndOfType(reader,'\r')
 		if err!=nil{
 			return nil, err
 		}
@@ -66,7 +70,6 @@ func parseRESP(reader *bytes.Reader) (interface{}, error)  {
 		if err!=nil{
 			return nil,err
 		}
-		clearEndOfByte(reader)
 		return parseBulkStrings(reader,bulkLength)
 
 	case arrays:
@@ -85,7 +88,7 @@ func parseRESP(reader *bytes.Reader) (interface{}, error)  {
 //	case errorString:
 		// handle errors
 	default:
-		return nil,fmt.Errorf("error: dataType not valid")
+		return nil,fmt.Errorf("error: dataType not valid,%s",string(data))
 	}
 
 }
