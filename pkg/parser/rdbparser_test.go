@@ -1,4 +1,4 @@
-package main
+package parser
 
 import (
 	"bytes"
@@ -8,11 +8,12 @@ import (
 	"testing"
 	"os"
 	"io"
+	
 )
 
 func TestReadRdbFileFromActualFile(t *testing.T) {
 	// Open the file
-	file, err := os.Open("dump.rdb")
+	file, err := os.Open("../../cmd/dump.rdb")
 	if err !=nil {
 		t.Fatalf("Failed to open file: %v", err)
 	}

@@ -1,4 +1,4 @@
-package main
+package parser
 
 import (
 	"bytes"
@@ -7,7 +7,13 @@ import (
 	"strconv"
 )
 
-
+const (
+	simpleStrings byte = '+'
+	errorString byte = '-'
+	bulkStrings byte = '$'
+	arrays byte = '*'
+	integers byte = ':'
+)
 
 func readTilEndOfType(reader *bytes.Reader, delimiter byte) ([]byte, error){
 	var data []byte
@@ -50,7 +56,7 @@ func clearEndOfByte(reader *bytes.Reader) error{
 }
 
 // returns either slice of bytes OR returns an array of slice of bytes
-func parseRESP(reader *bytes.Reader) (interface{}, error)  {
+func ParseRESP(reader *bytes.Reader) (interface{}, error)  {
 	data,err := reader.ReadByte()
 	if err!=nil{
 		return nil, err
@@ -97,7 +103,7 @@ func parseRESP(reader *bytes.Reader) (interface{}, error)  {
 func parseArray(reader *bytes.Reader, length int)([]interface{}, error){
 	var result []interface{}
 	for i := 0 ; i < length ; i++{
-		curr, err := parseRESP(reader)
+		curr, err := ParseRESP(reader)
 		if err!=nil{
 			return nil, err
 		}

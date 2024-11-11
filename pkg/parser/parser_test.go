@@ -1,4 +1,4 @@
-package main
+package parser
 
 import (
 	"bytes"
@@ -6,34 +6,6 @@ import (
 	"testing"
 )
 
-func TestReadRdbFile(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected map[string]string
-		expectErr bool
-	}{
-		{"REDIS0000\r\n", map[string]string{"rdbFileStart": "REDIS0000"}, false},
-		{"NOTREDIS0000\r\n", nil, true},
-		{"REDIS0001\r\n", map[string]string{"rdbFileStart": "REDIS0001"}, false},
-	}
-
-	for _, test := range tests {
-		reader := bytes.NewReader([]byte(test.input))
-		result, err := readRdbFile(reader)
-
-		if test.expectErr && err == nil {
-			t.Errorf("Expected error, got nil")
-		}
-
-		if !test.expectErr && err != nil {
-			t.Errorf("Unexpected error: %v", err)
-		}
-
-		if !reflect.DeepEqual(result, test.expected) {
-			t.Errorf("Expected %v, got %v", test.expected, result)
-		}
-	}
-}
 
 func TestReadTilEndOfType(t *testing.T) {
 	tests := []struct {
@@ -117,7 +89,7 @@ func TestParseRESP(t *testing.T) {
 
 	for _, test := range tests {
 		reader := bytes.NewReader([]byte(test.input))
-		result, err := parseRESP(reader)
+		result, err := ParseRESP(reader)
 
 		if test.expectErr && err == nil {
 			t.Errorf("Expected error, got nil")

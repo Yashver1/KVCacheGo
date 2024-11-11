@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 	//"path/filepath"
+	parser "github.com/Yashver1/KVCacheGo/pkg/parser"
 )
 
 
@@ -125,7 +126,7 @@ func handleConnection(conn net.Conn, kvstore *KVStore){
 
 func selectReply(reader *bytes.Reader, kvstore *KVStore) ([]byte,error){
 
-	clientMessage, err := parseRESP(reader)
+	clientMessage, err := parser.ParseRESP(reader)
 	if err!=nil{
 		return nil, err
 	}
