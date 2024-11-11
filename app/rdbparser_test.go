@@ -6,7 +6,42 @@ import (
 	"fmt"
 	"strconv"
 	"testing"
+	"os"
+	"io"
 )
+
+func TestReadRdbFileFromActualFile(t *testing.T) {
+	// Open the file
+	file, err := os.Open("dump.rdb")
+	if err !=nil {
+		t.Fatalf("Failed to open file: %v", err)
+	}
+	defer file.Close()
+
+	// Read the file content into a byte slice
+	fileContent, err := io.ReadAll(file)
+	if err != nil {
+		t.Fatalf("Failed to read file: %v", err)
+	}
+
+	// Create a bytes.Reader from the file content
+	reader := bytes.NewReader(fileContent)
+
+	// Call the readRdbFile function
+	result, err := readRdbFile(reader)
+	if err != nil {
+		t.Fatalf("Failed to read RDB file: %v", err)
+	}
+
+	// Print the result
+	t.Logf("RDB File Result: %v", result)
+
+	// Add your assertions here to validate the result
+	// Example:
+	if len(result) == 0 {
+		t.Errorf("Expected non-empty result, got: %v", result)
+	}
+}
 
 // TestReadLengthEncodedString tests the readLengthEncodedString function
 // according to the length encoding rules described.

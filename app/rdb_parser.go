@@ -5,12 +5,28 @@ import (
 	"encoding/binary"
 	"fmt"
 	"strconv"
+	"io"
 )
 
 
 type LengthEncodedValue struct {
 	isInt bool 
 	value []byte
+}
+
+
+func restoreReader(reader *bytes.Reader, prepend byte) (*bytes.Reader,error){
+	remainingBytes, err := io.ReadAll(reader)
+	if err!=nil{
+		return nil, err
+	}
+
+	remainingBytesArray := make([]byte,0)
+	remainingBytesArray = append(remainingBytesArray, prepend)
+	remainingBytesArray = append(remainingBytesArray, remainingBytes...)
+	*reader = *bytes.NewReader(remainingBytesArray)
+
+	return reader, nil
 }
 
 
@@ -73,12 +89,103 @@ func readRdbFile(reader *bytes.Reader) (map[string]string, error){
 
 			result[string(key.value)] = string(parsedValue)
 
-		case 0xFB:
-		case 0xFC:
-		case 0xFD:
 		case 0xFE:
-		case 0xFF:
-			return result , nil
+			databaseSelector , err := reader.ReadByte()
+			if err!=nil{
+				return nil, err
+			}
+
+			dbValues := make(map[string]string)
+
+		loop:
+			for {
+
+				KeyValueOpCode, err := reader.ReadByte()
+				if err!=nil{
+					return nil, err
+				}
+
+				switch KeyValueOpCode{
+				case 0xFB:
+					sizeOfHashTable , err := reader.ReadByte()
+					if err!=nil{
+						return nil, err
+					}
+
+					dbValues["databaseHashTableSize"] = strconv.Itoa(int(sizeOfHashTable & 0x3f))
+
+					sizeofExpiryHashTable, err := reader.ReadByte()
+					if err!=nil{
+						return nil, err
+					}
+
+					dbValues["databaseExpiryHashTableSize"] = strconv.Itoa(int(sizeofExpiryHashTable & 0x3f))
+	
+				case 0xFC:
+					buffer := make([]byte, 8)
+					if _,err := reader.Read(buffer); err!=nil{
+						return nil, err
+					}
+
+					expiryInMiliseconds := binary.BigEndian.Uint64(buffer)
+					valueType, err := reader.ReadByte()
+					if err!=nil{
+						return nil,err
+					}
+
+					keyValuePair, err := readRdbKeyValuePairs(reader, int(valueType))
+					if err!=nil{
+						return nil, err
+					}
+					dbValues[keyValuePair[0]] = keyValuePair[1] + strconv.Itoa(int(expiryInMiliseconds))
+
+				case 0xFD:
+
+					buffer := make([]byte, 4)
+					if _, err := reader.Read(buffer); err!=nil{
+						return nil, err
+					}
+
+					expiryInSeconds := binary.BigEndian.Uint32(buffer)
+					valueType, err := reader.ReadByte()
+					if err!=nil{
+						return nil, err
+					}
+
+					keyValuePair, err := readRdbKeyValuePairs(reader, int(valueType))
+					if err!=nil{
+						return nil, err
+					}
+					dbValues[keyValuePair[0]] = keyValuePair[1] + strconv.Itoa(int(expiryInSeconds))
+
+				//if doesnt match case that means that the next KeyValuePair is not one with expiry. According to rdb file format keyValueOpCode should be the value-type
+
+				case 0xFE:
+					reader, err = restoreReader(reader, 0xFE)
+					if err!=nil{
+						return nil, err
+					}
+
+					result["dbNumbers" + strconv.Itoa(int(databaseSelector))] = fmt.Sprint(dbValues)
+					break loop
+				
+				case 0xFF:
+
+					result["dbNumbers" + strconv.Itoa(int(databaseSelector))] = fmt.Sprint(dbValues)
+					return result, nil
+
+				default:
+					
+					keyValuePair, err := readRdbKeyValuePairs(reader, int(KeyValueOpCode))
+					if err!=nil{
+						return nil, err
+					}
+					dbValues[keyValuePair[0]] = keyValuePair[1] 
+
+				}
+				
+			}
+
 		default:
 			return nil, fmt.Errorf("invalid Op Code")
 		}
@@ -86,9 +193,35 @@ func readRdbFile(reader *bytes.Reader) (map[string]string, error){
 
 }
 
-// func readRdbKeyValuePairs(reader *bytes.Reader)([]byte, error){
-// 	return []byte("test"), nil
-// }
+//TODO Implement parsing of other encoded key value types
+//returns an array of length 2 where [0] is key [1] is value
+func readRdbKeyValuePairs(reader *bytes.Reader, valueType int)([]string, error){
+
+	var keyValuePair []string
+	switch valueType{
+	case 0:
+		key, err := readLengthEncodedString(reader)
+		if err!=nil{
+			return nil, err
+		}
+		value, err := readLengthEncodedString(reader)
+		if err!=nil{
+			return nil, err
+		}
+
+		keyValuePair = append(keyValuePair, string(key.value))
+		keyValuePair = append(keyValuePair, string(value.value))
+	//missing other types
+	default:
+		return nil, fmt.Errorf("invalid rdb value type")
+		
+	}
+
+	return keyValuePair , nil
+}
+
+
+
 
 func readLengthEncodedString(reader *bytes.Reader)(LengthEncodedValue, error){
 	initByte, err := reader.ReadByte()
